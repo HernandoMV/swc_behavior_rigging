@@ -684,7 +684,6 @@ classdef SignalsExp < handle
           [nlicks, ~, licked] = readPosition(obj.LickDetector);
           if licked
             post(obj.Inputs.lick, nlicks);
-            fprintf('lick count now %i\n', nlicks);
           end
         end
         post(obj.Time, now(obj.Clock));
