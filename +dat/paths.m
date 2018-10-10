@@ -18,7 +18,7 @@ end
 p.rigbox = fileparts(which('addRigboxPaths'));
 % path to shared repository (accessible to MC and simulus server
 % computers)
-serverName = fullfile('Z:\users\hernando\IBL_Rig', 'Repositories');
+serverName = 'Z:\users\hernando\IBL_Rig';
 % Repository for local copy of everything generated on this rig
 p.localRepository = 'C:\LocalExpData';
 % for all data types, under the new system of having data grouped by mouse
