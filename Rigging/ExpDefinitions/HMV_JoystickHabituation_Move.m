@@ -1,4 +1,4 @@
-function HMV_JoystickHabituation_1(t, events, parameters, visStim, inputs, outputs, audio)
+function HMV_JoystickHabituation_Move(t, events, parameters, visStim, inputs, outputs, audio)
 % This is meant to help the mouse learn to control the joystick
 % It is the first phase of learning. Whenever the mouse moves the joystick,
 % it gets a big reward, a tone sounds, and trial ends.
