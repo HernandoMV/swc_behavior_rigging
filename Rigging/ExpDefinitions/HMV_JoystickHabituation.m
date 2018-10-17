@@ -7,11 +7,7 @@ function HMV_JoystickHabituation(t, events, parameters, visStim, inputs, outputs
 % targets and hold it there for a brief period of time (avoid balistic).
 % During that period of time a sound plays.
 
-%% Define parameters
-% Give the user the option to pass this as parameters
-DistToReach = parameters.Distance_to_reach; % How far from the center
-TargetRange = parameters.Target_range; % How wide
-TimeToHold = parameters.Time_to_hold; % For how long to keep the joystick in that position
+
 
 %% Time, licks, joystick
 % To monitor time
@@ -22,10 +18,10 @@ lick_raw = inputs.lick;
 events.lick = lick_raw;
 
 % TODO: Implement an online thresholding to count licks, where the threshold
-% is passed as an input in the parameters section
+% is passed as an input in the parameters section.
 
 % Joystick, filtered to avoid flickering
-joystick_raw = 25*inputs.wheel;
+joystick_raw = 15 * inputs.wheel;
 joystick = joystick_raw.map(@floor).skipRepeats;
 % make the azimuth 0 when joystick in center
 zero_joystick = joystick.at(events.expStart.delay(0));
@@ -36,10 +32,10 @@ zero_joystick = joystick.at(events.expStart.delay(0));
 % Generate two rectangles that indicate the target to reach
 TargetStim_1 = vis.patch(t, 'rect');
 TargetStim_2 = vis.patch(t, 'rect');
-TargetStim_1.azimuth = DistToReach;
-TargetStim_2.azimuth = - DistToReach;
-TargetStim_1.dims = [TargetRange,95];
-TargetStim_2.dims = [TargetRange,95];
+TargetStim_1.azimuth = parameters.Distance_to_reach;
+TargetStim_2.azimuth = - parameters.Distance_to_reach;
+TargetStim_1.dims = [parameters.Target_range,95];
+TargetStim_2.dims = [parameters.Target_range,95];
 TargetStim_1.show = true;
 TargetStim_2.show = true;
 visStim.TargetStim_1 = TargetStim_1;
@@ -47,7 +43,7 @@ visStim.TargetStim_2 = TargetStim_2;
 
 % Show a stimulus that can be controlled with the joystick
 MovingStim = vis.grating(t, 'square', 'gaussian');
-MovingStim_azimuth = 2 * -(joystick - zero_joystick); %negative because it goes the other way around
+MovingStim_azimuth = 4 * -(joystick - zero_joystick); %negative because it goes the other way around
 MovingStim.azimuth = MovingStim_azimuth;
 MovingStim.sigma = [5 5];
 MovingStim.spatialFreq = 1/5;
@@ -55,51 +51,87 @@ MovingStim.show = true;
 visStim.gaborStim = MovingStim;
 
 %% Define the succesful trial condition
-% TODO: Implement the 'hold for some time' condition
-
 % Define the condition when the trial is successful. Do this when the
 % grating is within a narrow range of the square.
 % Joystick reaches the target
-joystick_reach = or(MovingStim_azimuth >= (DistToReach - TargetRange/2), ...
-    MovingStim_azimuth <= (-DistToReach + TargetRange/2));
-
+lower_limit = parameters.Distance_to_reach - parameters.Target_range/2;
+joystick_reach = or(MovingStim_azimuth >= lower_limit, ...
+    MovingStim_azimuth <= - lower_limit);
 % Joystick has moved too much
-joystick_overshoot = or(MovingStim_azimuth >= (DistToReach - TargetRange/2), ...
-    MovingStim_azimuth <= (-DistToReach + TargetRange/2));
-joystick_left_to_target = or(MovingStim_azimuth <= (DistToReach + TargetRange/2), ...
-    MovingStim_azimuth <= (-DistToReach + TargetRange/2));
-joystick_condition_met = and(joystick_right_to_target, joystick_left_to_target);
-events.joystick_condition_met = joystick_condition_met; %do I need this?
+upper_limit = parameters.Distance_to_reach + parameters.Target_range/2;
+joystick_overshoot = or(MovingStim_azimuth >= upper_limit, ...
+    MovingStim_azimuth <= - upper_limit);
+
+joystick_condition_met = and(joystick_reach, ~joystick_overshoot);
+joystick_in_range = joystick_condition_met.skipRepeats;
+events.joystick_in_range = joystick_in_range;
+
+%% Reward and end of trial
+% Define when the task is accomplished
+% This works as a counter:
+Time_in_range = cond(...
+    joystick_in_range, t - t.at(joystick_in_range), ...
+    true, 0);
+% Task accomplished:
+Task_accomplished = Time_in_range >= parameters.Time_to_hold;
+SR_Task_accomplished = Task_accomplished.skipRepeats;
+events.Task_accomplished = SR_Task_accomplished;
+
+% Give reward when task has been accomplished, only once per trial
+GiveReward_trigger = events.newTrial.setTrigger(SR_Task_accomplished);
+% events.GiveReward_trigger = GiveReward_trigger;
+GiveReward = GiveReward_trigger.to(events.newTrial);
+% events.GiveReward = GiveReward;
+outputs.reward = parameters.Reward_size.at(GiveReward); % output reward
 
 %% Sound stimuli
 % Define the sound
 audioSampleRate = 192e3;
 toneAmplitude = 0.5;
-toneFreq = 500;
+toneFreq = 4000;
 toneDuration = 0.1;
-% Define when to start the sound
-soundTrigger = events.joystick_condition_met.delay(0);
 % Play a sound while the condition is met
 toneSamples = toneAmplitude*aud.pureTone(toneFreq, toneDuration, audioSampleRate);
 toneSamplesSignal = events.expStart.mapn(@(x) toneSamples);
 % pass that into the audio handler:
-audio.tone1 = toneSamplesSignal.at(soundTrigger);
+audio.tone1 = toneSamplesSignal.at(GiveReward.delay(0));
 
-% 
-% % TODO: make this dependent on accomplishment of the task, with a delay
-% % endTrial = events.newTrial.delay(1); % could also write delay(events.newTrial,1)
-% % Whatever parameter passed to events, will get displayed
-% % events.endTrial = endTrial;
-% % When the hit happens, end the trial: This is too fast and new trials are
-% % initiated all the time. It should be fixed once the hit condition is
-% % better.
-% % endTrial = events.joystick_condition_met.delay(0.2);
-% events.endTrial = at(true,joystick_condition_met);
-% %events.endTrial = joystick_condition_met.at(true); %This doesn't do it
-% 
-% 
-% TODO: start a new trial when joystick in the center?
 
 %% End Trial
-events.endTrial = events.newTrial.delay(10);
+% end trial if task is successful and joystick is back to the center.
+joystick_in_zero = joystick == zero_joystick;
+events.Joystick_in_zero = joystick_in_zero.skipRepeats;
+
+% PROBLEM: conditions to finish the trial are not reached 
+% make a conditional signal that is true once the task is accomplished and
+% false when a new trial starts.
+
+
+% Mark that it was a success (the task)
+Success = at(true,Task_accomplished);
+% Mark that it was a success (the task)
+events.success = Success;
+% Make a variable that tracks success and is false at the beginning of
+% trial
+Ready_to_end = Success.to(events.Joystick_in_zero.delay(0.1));
+events.Ready_to_end = Ready_to_end;
+%end trial if both conditions are satisfied
+% Task_accomplished is not true once the task has been accomplished and the
+% joystick leaves the reward zone, so this End_Trial is never true:
+End_Trial = and(events.Ready_to_end, events.Joystick_in_zero);
+SR_End_Trial = at(true,End_Trial.skipRepeats);
+% End_Trial_true = at(true,End_Trial); % THIS CAUSES PROBLEM
+events.endTrial = SR_End_Trial.delay(0.1);
+% events.endTrial = events.newTrial.delay(5);
+
+%% Define parameters
+% Give the user the option to pass this as parameters
+try
+parameters.Distance_to_reach = 30; % How far from the center
+parameters.Target_range = 5; % How wide
+parameters.Time_to_hold = 0.1; % For how long to keep the joystick in that position
+parameters.Reward_size = 3; % Size of reward
+catch
+end
+    
 end

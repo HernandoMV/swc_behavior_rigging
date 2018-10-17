@@ -2,6 +2,9 @@ function HMV_playground(t, events, parameters, visStim, inputs, outputs, audio)
 % Definition of when the trial will end, dependent on time delay to
 % newTrial
 
+% parameters test
+test = parameters.test;
+
 % To monitor time
 events.t = t;
 
