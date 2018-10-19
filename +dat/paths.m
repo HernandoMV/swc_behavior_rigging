@@ -18,7 +18,14 @@ end
 p.rigbox = fileparts(which('addRigboxPaths'));
 % path to shared repository (accessible to MC and simulus server
 % computers)
-serverName = 'Z:\users\hernando\IBL_Rig';
+
+% Gluster Server
+% serverName = 'Z:\users\hernando\IBL_Rig';
+% Daq-stor Server
+% serverName = 'Y:\SJLab\users\hernando\IBL_Rig';
+% Local shared folder
+serverName = 'X:\';
+
 % Repository for local copy of everything generated on this rig
 p.localRepository = 'C:\LocalExpData';
 % for all data types, under the new system of having data grouped by mouse

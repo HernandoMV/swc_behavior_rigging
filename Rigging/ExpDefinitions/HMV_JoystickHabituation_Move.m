@@ -21,13 +21,22 @@ joystick_raw = 10 * inputs.wheel;
 joystick = joystick_raw.map(@floor).skipRepeats;
 % make the azimuth 0 when joystick in center
 zero_joystick = joystick.at(events.expStart.delay(0));
+joystick_diff = joystick - zero_joystick;
+% define a condition where the joystick is near the 0 position, in order
+% not to move anything there, and as a condition to finish trial
+joystick_zero_threshold = 3;
+joystick_near_zero = abs(joystick_diff) < joystick_zero_threshold;
+
 % TODO: Implement a calibration for the joystick to define the zero
 % position without the mouse in the setup
 
 %% Visual stimuli
 % Show a stimulus that can be controlled with the joystick
 MovingStim = vis.grating(t, 'square', 'none');
-MovingStim_azimuth = 4 * -(joystick - zero_joystick); %negative because it goes the other way around
+% The joystick will not move at initial angles to avoid flickering
+MovingStim_azimuth = - 4 * cond(...
+    ~joystick_near_zero, joystick_diff - sign(joystick_diff) * joystick_zero_threshold, ... % to avoid a jump after threshold
+    true, 0);
 MovingStim.azimuth = MovingStim_azimuth;
 MovingStim.sigma = [5 5];
 MovingStim.spatialFreq = 1/25;
