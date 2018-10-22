@@ -1,15 +1,11 @@
-function HMV_JoystickHabituation_Discriminate(t, events, parameters, visStim, inputs, outputs, audio)
+function HMV_JoystickHabituation_Bidirectional(t, events, parameters, visStim, inputs, outputs, audio)
 % This is meant to help the mouse learn to control the joystick
-% It is the third phase of learning. The animal needs to move the joystick
-% left or right depending on the orientation of the gratings, that are
-% shown in three different stimuli: Two big ones, one on each side, and one
-% in the middle, which moves with the joystick to provide visual feedback
-% on the movement. There is another stimuli that appears to indicate the
-% target to reach, which will be left or right dependent on the stimuli.
-% The opacity of this target can be specified in the parameters.
-
-% There are no wrong trials for now
-
+% It is the second phase of learning. The animal needs to move the joystick
+% left or right depending on where the stimulus appears, which also changes
+% grating. A moving rectangle gives feedback on the joystick movement.When
+% thresholds are reach either white noise appears if it is the wrong side,
+% or reward is given and new trial is innitiated if joystick is in the
+% center. The side is selected as a parameter.
 
 %% Time, licks, joystick
 % To monitor time
@@ -27,16 +23,12 @@ zero_joystick = joystick.at(events.expStart.delay(0));
 joystick_diff = joystick - zero_joystick;
 % define a condition where the joystick is near the 0 position, in order
 % not to move anything there, and as a condition to finish trial
-joystick_zero_threshold = 3;
+joystick_zero_threshold = 2;
 joystick_near_zero = abs(joystick_diff) < joystick_zero_threshold;
-
-% TODO: Implement a calibration for the joystick to define the zero
-% position without the mouse in the setup
 
 %% Define a target each trial, and the dependent variables
 % test this differently
-TrialSide = events.newTrial.scan(@(~, ~)...
-    (randsample([-1,1],1)), 1); % CHECK IF THIS IS NEEDE
+TrialSide = parameters.TrialSide;
 events.TrialSide = TrialSide;
 
 TrialTarget = cond(TrialSide==1, parameters.TargetDistance, ...
@@ -49,41 +41,29 @@ TrialGrating = cond(TrialSide==1, parameters.GratingValue, ...
     true, parameters.GratingValue); % For first trial
 events.TrialGrating = TrialGrating;
 
-%% Visual stimuli
-%TODO: The stimuli display should be from the start of the trial to the
-%end, and dissapear on the resting period.
+TrialAzimuth = cond(TrialSide==1, parameters.StimulusPosition, ...
+    TrialSide==-1, -parameters.StimulusPosition, ...
+    true, parameters.StimulusPosition); % For first trial
+events.TrialAzimuth = TrialAzimuth;
 
-% Target stimuli
-TargetStim = vis.patch(t, 'rect');
-TargetStim.azimuth = TrialTarget; % Target to reach
-TargetStim.dims = [5,95];
-TargetStim.show = true;
-visStim.TargetStim = TargetStim;
+%% Visual stimuli
 
 % Helper stimuli
 HelperStim_1 = vis.grating(t, 'square', 'gaussian');
-HelperStim_2 = vis.grating(t, 'square', 'gaussian');
-HelperStim_1.azimuth = 120;
-HelperStim_2.azimuth = - 120;
+HelperStim_1.azimuth = TrialAzimuth;
 HelperStim_1.sigma = [20 20];
-HelperStim_2.sigma = [20 20];
 HelperStim_1.phase = TrialGrating;
-HelperStim_2.phase = TrialGrating;
 HelperStim_1.show = true;
-HelperStim_2.show = true;
 visStim.HelperStim_1 = HelperStim_1;
-visStim.HelperStim_2 = HelperStim_2;
 
 % Movable stimuli
-MovingStim = vis.grating(t, 'square', 'gaussian');
+MovingStim = vis.patch(t, 'rect');
 % The joystick will not move at initial angles to avoid flickering
 MovingStim_azimuth = - 4 * cond(...
     ~joystick_near_zero, joystick_diff - sign(joystick_diff) * joystick_zero_threshold, ... % to avoid a jump after threshold
     true, 0);
 MovingStim.azimuth = MovingStim_azimuth;
-MovingStim.sigma = [5 5];
-MovingStim.phase = TrialGrating;
-MovingStim.spatialFreq = 1/25;
+MovingStim.dims = [5,95];
 MovingStim.show = true;
 visStim.gaborStim = MovingStim;
 
@@ -92,6 +72,13 @@ visStim.gaborStim = MovingStim;
 Target_reached = cond(...
     TrialSide == 1, MovingStim_azimuth > TrialTarget, ...
     TrialSide == -1, MovingStim_azimuth < TrialTarget, ...
+    true, 0); % This might not be needed
+
+%% Wrong target reached
+
+Wrong_reached = cond(...
+    TrialSide == 1, MovingStim_azimuth < -TrialTarget, ...
+    TrialSide == -1, MovingStim_azimuth > -TrialTarget, ...
     true, 0); % This might not be needed
 
 %% Time to reward each trial
@@ -124,6 +111,15 @@ toneSamplesSignal = events.expStart.mapn(@(x) toneSamples);
 % pass that into the audio handler:
 audio.tone1 = toneSamplesSignal.at(GiveReward);
 
+% Give feedback if wrong
+% Define the sound
+missNoiseDuration = 0.5;
+missNoiseAmplitude = 0.02;
+missNoiseSamples = missNoiseAmplitude*events.expStart.map(@(x) ...
+    randn(2, audioSampleRate*missNoiseDuration));
+% pass that into the audio handler:
+audio.tone2 = missNoiseSamples.at(Wrong_reached);
+
 %% End Trial
 events.endTrial = events.newTrial.at(GiveReward.delay(parameters.IntertrialDelay)); %give time for sound
 
@@ -134,11 +130,13 @@ events.endTrial = events.newTrial.at(GiveReward.delay(parameters.IntertrialDelay
 % Give the user the option to pass this as parameters
 try
 % parameters.useJoystick = true; %checkbox
-parameters.rewardTime = 30; % How long to wait
+parameters.rewardTime = 150; % How long to wait
 parameters.rewardSize = 2; % Size of reward
 parameters.IntertrialDelay = 2; % Delay between trials
-parameters.TargetDistance = 15; % Distance of the target
+parameters.TargetDistance = 8; % Distance of the target
 parameters.GratingValue = 45;
+parameters.StimulusPosition = 40;
+parameters.TrialSide = 1; % 1 or -1 depending on the side
 catch
 end
     
