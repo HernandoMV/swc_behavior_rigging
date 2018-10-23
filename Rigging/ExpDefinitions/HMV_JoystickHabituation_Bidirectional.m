@@ -13,38 +13,44 @@ events.t = t;
 
 % Lick detection
 lick_raw = inputs.lick;
-events.lick = lick_raw;
+% events.lick = lick_raw;
 
 % Joystick, filtered to avoid flickering
-joystick_raw = 10 * inputs.wheel;
+joystick_movement_ratio = 60;
+joystick_raw = joystick_movement_ratio * inputs.wheel;
 joystick = joystick_raw.map(@floor).skipRepeats;
 % make the azimuth 0 when joystick in center
 zero_joystick = joystick.at(events.expStart.delay(0));
 joystick_diff = joystick - zero_joystick;
 % define a condition where the joystick is near the 0 position, in order
 % not to move anything there, and as a condition to finish trial
-joystick_zero_threshold = 2;
+joystick_zero_threshold = joystick_movement_ratio / 10;
 joystick_near_zero = abs(joystick_diff) < joystick_zero_threshold;
 
 %% Define a target each trial, and the dependent variables
-% test this differently
-TrialSide = parameters.TrialSide;
+% Define it based on blocks
+% The following variable is either 0 or 1
+Block_Mod = mod(floor(events.trialNum/parameters.BlockSize), 2);
+events.Block_Mod = Block_Mod.skipRepeats;
+TrialSide = cond(Block_Mod == 1, 1, ...
+    true, -1);
+
 events.TrialSide = TrialSide;
 
 TrialTarget = cond(TrialSide==1, parameters.TargetDistance, ...
     TrialSide==-1, -parameters.TargetDistance, ...
     true, parameters.TargetDistance); % For first trial % CHECK IF THIS IS NEEDED
-events.TrialTarget = TrialTarget;
+% events.TrialTarget = TrialTarget;
 
 TrialGrating = cond(TrialSide==1, parameters.GratingValue, ...
     TrialSide==-1, -parameters.GratingValue, ...
     true, parameters.GratingValue); % For first trial
-events.TrialGrating = TrialGrating;
+% events.TrialGrating = TrialGrating;
 
 TrialAzimuth = cond(TrialSide==1, parameters.StimulusPosition, ...
     TrialSide==-1, -parameters.StimulusPosition, ...
     true, parameters.StimulusPosition); % For first trial
-events.TrialAzimuth = TrialAzimuth;
+% events.TrialAzimuth = TrialAzimuth;
 
 %% Visual stimuli
 
@@ -52,20 +58,22 @@ events.TrialAzimuth = TrialAzimuth;
 HelperStim_1 = vis.grating(t, 'square', 'gaussian');
 HelperStim_1.azimuth = TrialAzimuth;
 HelperStim_1.sigma = [20 20];
-HelperStim_1.phase = TrialGrating;
+HelperStim_1.orientation = TrialGrating;
 HelperStim_1.show = true;
 visStim.HelperStim_1 = HelperStim_1;
 
 % Movable stimuli
 MovingStim = vis.patch(t, 'rect');
 % The joystick will not move at initial angles to avoid flickering
-MovingStim_azimuth = - 4 * cond(...
+MovingStim_azimuth = - 1 * cond(...
     ~joystick_near_zero, joystick_diff - sign(joystick_diff) * joystick_zero_threshold, ... % to avoid a jump after threshold
     true, 0);
 MovingStim.azimuth = MovingStim_azimuth;
 MovingStim.dims = [5,95];
+MovingStim.colour = [0 0 0];
 MovingStim.show = true;
 visStim.gaborStim = MovingStim;
+events.MovingAzimuth = MovingStim_azimuth;
 
 %% Joystick target reached
 
@@ -73,6 +81,7 @@ Target_reached = cond(...
     TrialSide == 1, MovingStim_azimuth > TrialTarget, ...
     TrialSide == -1, MovingStim_azimuth < TrialTarget, ...
     true, 0); % This might not be needed
+events.TargetReached = Target_reached;
 
 %% Wrong target reached
 
@@ -80,6 +89,7 @@ Wrong_reached = cond(...
     TrialSide == 1, MovingStim_azimuth < -TrialTarget, ...
     TrialSide == -1, MovingStim_azimuth > -TrialTarget, ...
     true, 0); % This might not be needed
+events.WrongReached = Wrong_reached;
 
 %% Time to reward each trial
 % Reasons for this same as with the joystick
@@ -94,9 +104,15 @@ Condition_met = cond(Target_reached, true, ... % movement threshold reached
   Time_delta > parameters.rewardTime, true, ... % time reached
   true, 0);
  events.Condition_met = Condition_met;
-% Give it only once per trial
-GiveReward_trigger = events.newTrial.setTrigger(Condition_met);
-GiveReward = GiveReward_trigger.to(events.newTrial); %skipRepeats does nothing
+% % Give it only once per trial: THIS FAILS AS TRIALS DO NOT RESTART IF THE
+% JOYSTICK IS KEPT FOR TOO LONG OVER THE TARGET
+% GiveReward_trigger = events.newTrial.setTrigger(Condition_met);
+% events.trigger = GiveReward_trigger;
+% GiveReward = GiveReward_trigger.to(events.newTrial); %skipRepeats does nothing
+% events.GiveReward = GiveReward;
+
+GiveReward = Condition_met.skipRepeats;
+
 outputs.reward = parameters.rewardSize.at(GiveReward);
 
 %% Sound stimuli
@@ -113,7 +129,7 @@ audio.tone1 = toneSamplesSignal.at(GiveReward);
 
 % Give feedback if wrong
 % Define the sound
-missNoiseDuration = 0.5;
+missNoiseDuration = 0.2;
 missNoiseAmplitude = 0.02;
 missNoiseSamples = missNoiseAmplitude*events.expStart.map(@(x) ...
     randn(2, audioSampleRate*missNoiseDuration));
@@ -125,6 +141,8 @@ events.endTrial = events.newTrial.at(GiveReward.delay(parameters.IntertrialDelay
 
 % TODO: Implement the condition that the joystick needs to be in the center
 % again.
+% events.endTrial = events.newTrial.at(GiveReward.setTrigger(joystick_near_zero).delay(parameters.IntertrialDelay));
+
 
 %% Define parameters
 % Give the user the option to pass this as parameters
@@ -137,7 +155,9 @@ parameters.TargetDistance = 8; % Distance of the target
 parameters.GratingValue = 45;
 parameters.StimulusPosition = 40;
 parameters.TrialSide = 1; % 1 or -1 depending on the side
+parameters.BlockSize = 10; % number of trials each block
 catch
 end
     
 end
+
