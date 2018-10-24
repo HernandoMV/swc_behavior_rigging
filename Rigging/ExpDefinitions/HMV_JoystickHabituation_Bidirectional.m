@@ -53,25 +53,28 @@ TrialAzimuth = cond(TrialSide==1, parameters.StimulusPosition, ...
 % events.TrialAzimuth = TrialAzimuth;
 
 %% Visual stimuli
+GracePeriod1 = events.newTrial.to(events.newTrial.delay(1));
+GracePeriod2 = events.newTrial.to(events.newTrial.delay(1.5));
 
 % Helper stimuli
 HelperStim_1 = vis.grating(t, 'square', 'gaussian');
 HelperStim_1.azimuth = TrialAzimuth;
 HelperStim_1.sigma = [20 20];
 HelperStim_1.orientation = TrialGrating;
-HelperStim_1.show = true;
+HelperStim_1.show = ~GracePeriod1;
 visStim.HelperStim_1 = HelperStim_1;
 
 % Movable stimuli
 MovingStim = vis.patch(t, 'rect');
 % The joystick will not move at initial angles to avoid flickering
 MovingStim_azimuth = - 1 * cond(...
+    GracePeriod2, 0, ...
     ~joystick_near_zero, joystick_diff - sign(joystick_diff) * joystick_zero_threshold, ... % to avoid a jump after threshold
     true, 0);
 MovingStim.azimuth = MovingStim_azimuth;
 MovingStim.dims = [5,95];
 MovingStim.colour = [0 0 0];
-MovingStim.show = true;
+MovingStim.show = ~GracePeriod1;
 visStim.gaborStim = MovingStim;
 events.MovingAzimuth = MovingStim_azimuth;
 
@@ -91,6 +94,9 @@ Wrong_reached = cond(...
     true, 0); % This might not be needed
 events.WrongReached = Wrong_reached;
 
+%make a signal that is true if the wrong side is reached
+Wrong_reached_penalty = Wrong_reached.to(Wrong_reached.delay(2.5));
+% events.WRP = Wrong_reached_penalty;
 %% Time to reward each trial
 % Reasons for this same as with the joystick
 Time_zero = cond(...
@@ -100,18 +106,19 @@ Time_delta = t - Time_zero;
 events.TimeDelta = Time_delta;
 
 %% Reward
-Condition_met = cond(Target_reached, true, ... % movement threshold reached
+Condition_met = cond(Wrong_reached_penalty, 0, ... %wrong movement
+  Target_reached, true, ... % movement threshold reached
   Time_delta > parameters.rewardTime, true, ... % time reached
   true, 0);
  events.Condition_met = Condition_met;
-% % Give it only once per trial: THIS FAILS AS TRIALS DO NOT RESTART IF THE
+% Give it only once per trial: THIS FAILS AS TRIALS DO NOT RESTART IF THE
 % JOYSTICK IS KEPT FOR TOO LONG OVER THE TARGET
-% GiveReward_trigger = events.newTrial.setTrigger(Condition_met);
-% events.trigger = GiveReward_trigger;
-% GiveReward = GiveReward_trigger.to(events.newTrial); %skipRepeats does nothing
-% events.GiveReward = GiveReward;
+GiveReward_trigger = events.newTrial.setTrigger(Condition_met);
+events.trigger = GiveReward_trigger;
+GiveReward = GiveReward_trigger.to(events.newTrial); %skipRepeats does nothing
+events.GiveReward = GiveReward;
 
-GiveReward = Condition_met.skipRepeats;
+% GiveReward = Condition_met.skipRepeats;
 
 outputs.reward = parameters.rewardSize.at(GiveReward);
 
@@ -137,11 +144,23 @@ missNoiseSamples = missNoiseAmplitude*events.expStart.map(@(x) ...
 audio.tone2 = missNoiseSamples.at(Wrong_reached);
 
 %% End Trial
-events.endTrial = events.newTrial.at(GiveReward.delay(parameters.IntertrialDelay)); %give time for sound
+% events.endTrial = events.newTrial.at(GiveReward.delay(parameters.IntertrialDelay)); %give time for sound
 
-% TODO: Implement the condition that the joystick needs to be in the center
-% again.
+% THIS MIGHT CONTAIN QUITE A LOT OF JUNK BUT I FOUND IT WORKED AFTER TRYING
+% A BUNCH OF STUFF
 % events.endTrial = events.newTrial.at(GiveReward.setTrigger(joystick_near_zero).delay(parameters.IntertrialDelay));
+Task_Accomplished = GiveReward.to(events.newTrial);
+% Task_Accomplished_delay = Task_Accomplished.delay(parameters.IntertrialDelay).to(events.newTrial);
+% events.TAD = Task_Accomplished_delay;
+JNZ = at(true,joystick_near_zero);
+JNZ_cond = Task_Accomplished.to(JNZ.skipRepeats).skipRepeats;
+% events.JNZ = JNZ.skipRepeats;
+% events.JNZcond = JNZ_cond;
+Ready_to_end = and(Task_Accomplished, JNZ_cond);
+SR_Ready_to_end = Ready_to_end.skipRepeats;
+% events.RTE = SR_Ready_to_end;
+
+events.endTrial = events.GiveReward.at(SR_Ready_to_end.delay(parameters.IntertrialDelay));
 
 
 %% Define parameters
